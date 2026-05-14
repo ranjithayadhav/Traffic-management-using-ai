@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Emergency Traffic Routing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; margin: 0; padding: 0; overflow: hidden; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .signal-icon { border-radius: 50%; box-shadow: 0 0 10px currentColor; transition: all 0.3s ease; }
+        .signal-red { background-color: #ef4444; color: #ef4444; width: 20px; height: 20px; border: 2px solid white; }
+        .signal-green { background-color: #22c55e; color: #22c55e; width: 20px; height: 20px; border: 2px solid white; }
+        .ambulance-icon { font-size: 24px; text-shadow: 0 0 5px #fff; }
+        
+        /* Hide default routing text instructions to keep UI clean */
+        .leaflet-routing-container { display: none !important; }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-screen w-screen">
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900">
+        <div class="glass-panel p-8 rounded-2xl w-full max-w-md text-center shadow-2xl">
+            <div class="text-4xl mb-4">🚑</div>
+            <h1 class="text-2xl font-bold mb-2">EMS Driver Portal</h1>
+            <p class="text-slate-400 mb-6 text-sm">AI-Assisted Traffic Preemption System</p>
+            <input type="text" placeholder="Vehicle ID (e.g., AMB-042)" class="w-full p-3 rounded bg-slate-800 border border-slate-700 text-white mb-4 focus:outline-none focus:border-blue-500">
+            <input type="password" placeholder="Access Code" class="w-full p-3 rounded bg-slate-800 border border-slate-700 text-white mb-6 focus:outline-none focus:border-blue-500">
+            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded transition-colors">Authenticate & Connect to Grid</button>
+        </div>
+    </div>
+
+    <!-- SIDEBAR DASHBOARD -->
+    <div id="dashboard" class="hidden w-full md:w-96 glass-panel flex flex-col z-10 shadow-2xl relative h-full">
+        <div class="p-6 border-b border-slate-700">
+            <div class="flex items-center gap-3 mb-1">
+                <div class="text-2xl">🚑</div>
+                <h2 class="text-xl font-bold">Active Rescue</h2>
+            </div>
+            <p class="text-xs text-green-400 flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                Connected to City AI Grid
+            </p>
+        </div>
+
+        <div class="p-6 flex-1 overflow-y-auto space-y-6">
+            <!-- Routing Controls -->
+            <div class="space-y-3">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Mission Coordinates</h3>
+                
+                <!-- Origin Input -->
+                <div class="space-y-1">
+                    <label class="text-xs text-blue-400">1. Origin</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="originInput" placeholder="e.g., MG Road, Bangalore" class="w-full p-2 rounded bg-slate-800 border border-slate-700 text-white focus:outline-none focus:border-blue-500 text-sm">
+                        <button id="btnSearchOrigin" onclick="searchLocation('origin')" class="bg-blue-600 hover:bg-blue-500 px-3 rounded text-sm font-bold transition-colors">Find</button>
+                    </div>
+                </div>
+
+                <!-- Destination Input -->
+                <div class="space-y-1">
+                    <label class="text-xs text-red-400">2. Destination</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="destInput" placeholder="e.g., Fortis Hospital, Bangalore" class="w-full p-2 rounded bg-slate-800 border border-slate-700 text-white focus:outline-none focus:border-red-500 text-sm">
+                        <button id="btnSearchDest" onclick="searchLocation('dest')" class="bg-red-600 hover:bg-red-500 px-3 rounded text-sm font-bold transition-colors">Find</button>
+                    </div>
+                </div>
+
+                <div class="text-xs text-slate-500 text-center mt-1 mb-1">- OR -</div>
+
+                <div class="flex gap-2">
+                    <button id="btnOrigin" onclick="setMode('origin')" class="flex-1 text-xs p-2 rounded bg-slate-800 border border-slate-700 hover:border-blue-500 transition-colors">
+                        Tap Map (Origin)
+                    </button>
+                    <button id="btnDest" onclick="setMode('dest')" class="flex-1 text-xs p-2 rounded bg-slate-800 border border-slate-700 hover:border-red-500 transition-colors">
+                        Tap Map (Dest)
+                    </button>
+                </div>
+                
+                <button id="btnStart" onclick="startSimulation()" disabled class="w-full bg-slate-700 text-slate-400 font-bold py-3 rounded transition-colors mt-4 cursor-not-allowed">
+                    Initialize AI Preemption Route
+                </button>
+            </div>
+
+            <!-- AI Factors Telemetry (Live) -->
+            <div class="space-y-3">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Live AI Environment Factors</h3>
+                <div class="bg-slate-800 p-4 rounded-lg space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Time of Day:</span>
+                        <span id="aiTime">Peak Hours (08:30 AM)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Traffic Volume:</span>
+                        <span id="aiTraffic" class="text-red-400">Heavy (85% Capacity)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Nearby Zones:</span>
+                        <span id="aiZones" class="text-yellow-400">School Zone Detected</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Pedestrian Density:</span>
+                        <span id="aiPeds">Moderate</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Signal Status -->
+            <div class="space-y-3">
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">Upcoming Signals</h3>
+                <div id="signalList" class="bg-slate-800 p-4 rounded-lg space-y-3 text-sm">
+                    <p class="text-slate-500 italic text-center">Awaiting route data...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAP CONTAINER -->
+    <div id="map" class="relative"></div>
+
+    <!-- SCRIPTS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    
+    <script>
+        // --- System Variables ---
+        let map, routingControl;
+        let originMarker, destMarker, ambulanceMarker;
+        let originLatLng = null, destLatLng = null;
+        let clickMode = null; // 'origin' or 'dest'
+        let routeCoordinates = [];
+        let signals = []; // Array of { latlng, marker, id, isGreen }
+        let animationId;
+        let ambSpeed = 0.0003; // Simulated speed along route array
+        let ambIndex = 0; // Current position index in route array
+        
+        // 1 Minute Simulation Config:
+        // Assuming average city speed of 60km/h, 1 minute = 1000 meters.
+        // We will trigger the green light when ambulance is < 1000m away.
+        const PREEMPTION_DISTANCE_METERS = 1000; 
+
+        // --- Initialization ---
+        function login() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            initMap();
+        }
+
+        function initMap() {
+            // Center roughly on New Delhi/Bangalore or any major city
+            map = L.map('map').setView([12.9716, 77.5946], 13); // Bangalore coordinates
+            
+            // Standard dark theme map tiles
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }).addTo(map);
+
+            map.on('click', handleMapClick);
+        }
+
+        // --- User Interaction ---
+        function setMode(mode) {
+            clickMode = mode;
+            if(mode === 'origin') {
+                document.getElementById('btnOrigin').classList.add('border-blue-500', 'bg-slate-700');
+                document.getElementById('btnDest').classList.remove('border-red-500', 'bg-slate-700');
+            } else {
+                document.getElementById('btnDest').classList.add('border-red-500', 'bg-slate-700');
+                document.getElementById('btnOrigin').classList.remove('border-blue-500', 'bg-slate-700');
+            }
+        }
+
+        async function searchLocation(type) {
+            const inputId = type === 'origin' ? 'originInput' : 'destInput';
+            const query = document.getElementById(inputId).value;
+            if (!query) {
+                alert("Please enter a location to search.");
+                return;
+            }
+
+            const btn = type === 'origin' ? document.getElementById('btnSearchOrigin') : document.getElementById('btnSearchDest');
+            const originalText = btn.innerText;
+            btn.innerText = "...";
+
+            try {
+                // Using OpenStreetMap's free Nominatim API for geocoding
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+                    const latlng = L.latLng(lat, lon);
+
+                    if (type === 'origin') {
+                        if (originMarker) map.removeLayer(originMarker);
+                        originLatLng = latlng;
+                        originMarker = L.marker(originLatLng, { icon: createCustomIcon('🔵') }).addTo(map);
+                        document.getElementById('originInput').value = data[0].display_name.split(',')[0]; // Simplify name
+                    } else {
+                        if (destMarker) map.removeLayer(destMarker);
+                        destLatLng = latlng;
+                        destMarker = L.marker(destLatLng, { icon: createCustomIcon('🔴') }).addTo(map);
+                        document.getElementById('destInput').value = data[0].display_name.split(',')[0];
+                    }
+                    
+                    // Zoom to the newly found location
+                    map.setView(latlng, 14);
+                    checkReadyToStart();
+                } else {
+                    alert("Location not found. Please try a different search term (e.g., 'MG Road, Bangalore').");
+                }
+            } catch (error) {
+                console.error("Geocoding error:", error);
+                alert("Error searching location. Please try tapping on the map instead.");
+            } finally {
+                btn.innerText = originalText;
+            }
+        }
+
+        function handleMapClick(e) {
+            if (clickMode === 'origin') {
+                if (originMarker) map.removeLayer(originMarker);
+                originLatLng = e.latlng;
+                originMarker = L.marker(originLatLng, { icon: createCustomIcon('🔵') }).addTo(map);
+                document.getElementById('originInput').value = "Selected on Map";
+                clickMode = null;
+                document.getElementById('btnOrigin').classList.remove('bg-slate-700');
+            } else if (clickMode === 'dest') {
+                if (destMarker) map.removeLayer(destMarker);
+                destLatLng = e.latlng;
+                destMarker = L.marker(destLatLng, { icon: createCustomIcon('🔴') }).addTo(map);
+                document.getElementById('destInput').value = "Selected on Map";
+                clickMode = null;
+                document.getElementById('btnDest').classList.remove('bg-slate-700');
+            }
+
+            checkReadyToStart();
+        }
+
+        function checkReadyToStart() {
+            if (originLatLng && destLatLng) {
+                document.getElementById('btnStart').disabled = false;
+                document.getElementById('btnStart').className = "w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded transition-colors mt-4 shadow-[0_0_15px_rgba(34,197,94,0.5)]";
+                calculateRoute();
+            }
+        }
+
+        function createCustomIcon(emoji) {
+            return L.divIcon({
+                html: `<div style="font-size: 24px; filter: drop-shadow(0px 0px 5px rgba(255,255,255,0.8));">${emoji}</div>`,
+                className: '',
+                iconSize: [24, 24],
+                iconAnchor: [12, 24]
+            });
+        }
+
+        // --- Routing and Setup ---
+        function calculateRoute() {
+            // Safety check: ensure existing routing control is properly cleared
+            if (routingControl) {
+                try {
+                    map.removeControl(routingControl);
+                } catch (e) {
+                    console.warn("Routing control cleanup error handled:", e);
+                }
+                routingControl = null;
+            }
+            
+            routingControl = L.Routing.control({
+                waypoints: [originLatLng, destLatLng],
+                routeWhileDragging: false,
+                addWaypoints: false,
+                show: false,
+                lineOptions: { styles: [{ color: '#3b82f6', opacity: 0.8, weight: 6 }] }
+            }).addTo(map);
+
+            routingControl.on('routesfound', function(e) {
+                routeCoordinates = e.routes[0].coordinates;
+                setupTrafficSignals();
+            });
+            
+            routingControl.on('routingerror', function(e) {
+                console.error("Routing error:", e.error);
+                alert("Could not find a route between these points. Please try different locations.");
+            });
+        }
+
+        function setupTrafficSignals() {
+            // Clear old signals
+            signals.forEach(s => map.removeLayer(s.marker));
+            signals = [];
+            
+            // Place a signal roughly every 15-20% of the route
+            let totalPoints = routeCoordinates.length;
+            if (totalPoints < 5) return; // Prevent errors on tiny routes
+            
+            let numSignals = 4;
+            let step = Math.floor(totalPoints / (numSignals + 1));
+
+            let signalListHTML = '';
+
+            for (let i = 1; i <= numSignals; i++) {
+                let coord = routeCoordinates[i * step];
+                if (!coord) continue;
+                
+                let icon = L.divIcon({
+                    html: `<div class="signal-icon signal-red"></div>`,
+                    className: '', iconSize: [20, 20], iconAnchor: [10, 10]
+                });
+                
+                let marker = L.marker([coord.lat, coord.lng], {icon: icon}).addTo(map);
+                
+                let sigObj = {
+                    id: i,
+                    latlng: L.latLng(coord.lat, coord.lng),
+                    marker: marker,
+                    isGreen: false
+                };
+                signals.push(sigObj);
+
+                signalListHTML += `
+                    <div id="sig-ui-${i}" class="flex items-center justify-between bg-slate-700/50 p-2 rounded">
+                        <span class="text-slate-300">Intersection #${i}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-slate-400 eta-text">ETA: > 5m</span>
+                            <span class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_5px_#ef4444] status-dot"></span>
+                        </div>
+                    </div>
+                `;
+            }
+            document.getElementById('signalList').innerHTML = signalListHTML || '<p class="text-slate-500 italic text-center">Short route, no signals.</p>';
+        }
+
+        // --- Simulation Execution ---
+        function startSimulation() {
+            if (routeCoordinates.length === 0) return;
+            
+            document.getElementById('btnStart').innerText = "Simulation Running...";
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnStart').className = "w-full bg-slate-700 text-slate-400 font-bold py-3 rounded mt-2";
+
+            if (ambulanceMarker) map.removeLayer(ambulanceMarker);
+            
+            ambulanceMarker = L.marker([routeCoordinates[0].lat, routeCoordinates[0].lng], {
+                icon: createCustomIcon('🚑')
+            }).addTo(map);
+
+            ambIndex = 0;
+            animateAmbulance();
+        }
+
+        function animateAmbulance() {
+            if (ambIndex >= routeCoordinates.length - 1) {
+                alert("Destination Reached! Patient Transferred.");
+                document.getElementById('btnStart').innerText = "Arrived";
+                return; // Stop animation
+            }
+
+            // Move ambulance
+            ambIndex += 2; // Speed multiplier
+            if (ambIndex >= routeCoordinates.length) ambIndex = routeCoordinates.length - 1;
+            
+            let currentPos = L.latLng(routeCoordinates[ambIndex].lat, routeCoordinates[ambIndex].lng);
+            ambulanceMarker.setLatLng(currentPos);
+
+            // Update Map View occasionally to follow ambulance
+            if(ambIndex % 50 === 0) {
+                 map.panTo(currentPos, {animate: true, duration: 1});
+            }
+
+            checkSignalDistances(currentPos);
+            updateAIFactors(ambIndex, routeCoordinates.length);
+
+            animationId = requestAnimationFrame(animateAmbulance);
+        }
+
+        function checkSignalDistances(ambPos) {
+            signals.forEach(sig => {
+                let distMeters = ambPos.distanceTo(sig.latlng);
+                
+                // Assuming 60kmh (16.6m/s), 60 seconds = 1000m. 
+                // If within 1000m (1 min), turn Green!
+                if (distMeters <= PREEMPTION_DISTANCE_METERS && !sig.isGreen) {
+                    // Turn Green
+                    sig.isGreen = true;
+                    sig.marker.setIcon(L.divIcon({
+                        html: `<div class="signal-icon signal-green"></div>`,
+                        className: '', iconSize: [20, 20], iconAnchor: [10, 10]
+                    }));
+
+                    // Update UI
+                    let uiEl = document.getElementById(`sig-ui-${sig.id}`);
+                    if (uiEl) {
+                        uiEl.querySelector('.status-dot').classList.replace('bg-red-500', 'bg-green-500');
+                        uiEl.querySelector('.status-dot').classList.replace('shadow-[0_0_5px_#ef4444]', 'shadow-[0_0_10px_#22c55e]');
+                        uiEl.querySelector('.eta-text').innerText = "ETA: < 1m (GREEN)";
+                        uiEl.querySelector('.eta-text').classList.add('text-green-400');
+                    }
+                } else if (distMeters > PREEMPTION_DISTANCE_METERS && !sig.isGreen) {
+                    // Calculate rough ETA for display
+                    let etaSeconds = Math.round(distMeters / 16.6); // 16.6 m/s
+                    let etaMins = Math.floor(etaSeconds / 60);
+                    let displayEta = etaMins > 0 ? `${etaMins}m` : `${etaSeconds}s`;
+                    let uiEl = document.getElementById(`sig-ui-${sig.id}`);
+                    if (uiEl) uiEl.querySelector('.eta-text').innerText = `ETA: ${displayEta}`;
+                }
+            });
+        }
+
+        // Simulate AI analyzing dynamic factors as the route progresses
+        function updateAIFactors(progress, total) {
+            let percent = progress / total;
+            
+            if (percent > 0.2 && percent < 0.4) {
+                document.getElementById('aiZones').innerText = "Hospital Zone - Speed Modulated";
+                document.getElementById('aiZones').className = "text-blue-400";
+            } else if (percent > 0.6 && percent < 0.8) {
+                document.getElementById('aiPeds').innerText = "High Pedestrian Activity detected";
+                document.getElementById('aiPeds').className = "text-red-400";
+            } else {
+                document.getElementById('aiZones').innerText = "Standard Urban Grid";
+                document.getElementById('aiZones').className = "text-slate-400";
+                document.getElementById('aiPeds').innerText = "Moderate";
+                document.getElementById('aiPeds').className = "text-slate-400";
+            }
+        }
+    </script>
+</body>
+</html>

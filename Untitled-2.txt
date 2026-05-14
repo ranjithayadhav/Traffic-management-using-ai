@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+    <title>AI Traffic Management</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <script src="/socket.io/socket.io.js"></script>
+
+   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCrOSvpUOhhGdLljgqRJ3adVZgsHFMWgEs&callback=initMap"></script>
+
+</head>
+
+<body>
+
+<h1>AI Traffic Management For Ambulance</h1>
+
+<div class="controls">
+
+    <input type="text" id="origin" placeholder="Origin">
+
+    <input type="text" id="destination" placeholder="Destination">
+
+    <button onclick="calculateRoute()">Start Ambulance</button>
+
+</div>
+
+<div id="map"></div>
+
+<h2>Traffic Signals</h2>
+
+<div class="signals">
+
+    <div class="signal" id="signal1">
+
+        <div class="light red active"></div>
+
+        <div class="light yellow"></div>
+
+        <div class="light green"></div>
+
+    </div>
+
+    <div class="signal" id="signal2">
+
+        <div class="light red active"></div>
+
+        <div class="light yellow"></div>
+
+        <div class="light green"></div>
+
+    </div>
+
+    <div class="signal" id="signal3">
+
+        <div class="light red active"></div>
+
+        <div class="light yellow"></div>
+
+        <div class="light green"></div>
+
+    </div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+
+</html>
